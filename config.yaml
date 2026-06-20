@@ -9,7 +9,7 @@ currencies:
 - code: GBP
   conditions:
     spot_selling_rate:
-      min: 900.0
+      min: 850.0
   name: 英镑
 - code: JPY
   conditions:
