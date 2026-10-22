@@ -1,0 +1,37 @@
+name: USD-CNY Daily ServerChan
+
+on:
+  schedule:
+    # UTC 01:00 = 北京时间每天09:00；GitHub定时任务可能延迟。
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: usd-cny-daily-serverchan
+  cancel-in-progress: false
+
+jobs:
+  daily-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install ServerChan SDK
+        run: python -m pip install --disable-pip-version-check serverchan-sdk==1.0.6
+
+      - name: Fetch USD rates and send daily message
+        env:
+          SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
+        run: python usd_cny_daily.py
