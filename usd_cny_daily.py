@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""美元兑人民币每日通知：中行牌价 + Server酱。
+"""美元兑人民币每日通知：中行牌价 + 息知。
 
-部署：由GitHub Actions每天运行一次；密钥只从SERVERCHAN_SENDKEY读取。
+部署：由GitHub Actions每天运行一次；密钥只从XZKEY读取。
 本文件是为daily通知新增的独立入口，原仓库邮件/阈值脚本无需修改。
 运行python usd_cny_daily.py --dry-run可只取报价并预览，不读取密钥、不推送。
 每次普通运行最多调用一次推送；手动运行也会额外推送一次。
@@ -13,11 +13,13 @@ import argparse
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from html.parser import HTMLParser
+import json
 import os
 import re
 import sys
 import time
-from urllib.request import Request, urlopen
+from urllib.error import HTTPError
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 BOC_URL = "https://www.boc.cn/sourcedb/whpj/"
 BEIJING = timezone(timedelta(hours=8))
@@ -142,26 +144,53 @@ def build_message(rates, published, now=None):
     return title, "\n".join(lines)
 
 
-def send_once(sendkey, title, text):
-    # Official SDK chooses the endpoint from the key; never print exceptions/URLs
-    # here because those may contain the key. No credentials are written to disk.
-    from serverchan_sdk import sc_send
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def xizhi_url(key):
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", key):
+        raise ValueError("请在当前仓库的Actions Secrets中配置XZKEY（只填息知Key，不填完整网址）。")
+    return f"https://xizhi.qqoq.net/{key}.send"
+
+
+def send_once(key, title, text):
+    # One POST only; exceptions can contain the key-bearing URL and are sanitized.
+    url = xizhi_url(key)
+    data = json.dumps({"title": title, "content": text}, ensure_ascii=False).encode("utf-8")
+    req = Request(url, data=data, method="POST", headers={
+        "Content-Type": "application/json;charset=UTF-8",
+        "User-Agent": "DailyRateReminder/1.0",
+    })
     try:
-        result = sc_send(sendkey, title, text)
+        with build_opener(_NoRedirect()).open(req, timeout=20) as response:
+            if response.status != 200:
+                raise RuntimeError("息知未返回正常状态，本次不自动重发")
+            data = response.read(100_001)
+            if len(data) > 100_000:
+                raise RuntimeError("息知响应异常，本次不自动重发")
+            result = json.loads(data.decode("utf-8"))
+    except HTTPError as error:
+        raise RuntimeError(f"息知请求失败（HTTP {error.code}），本次不自动重发") from None
     except Exception:
-        raise RuntimeError("Server酱调用失败；请检查网络、SendKey和接收通道，本次不自动重发") from None
-    if not isinstance(result, dict) or str(result.get("code")) != "0":
-        raise RuntimeError("Server酱未返回成功；请到Server酱后台检查密钥、通道和额度，本次不自动重发")
+        raise RuntimeError("息知网络请求失败或响应无法解析，本次不自动重发；请先检查是否已经收到通知") from None
+    if not isinstance(result, dict) or type(result.get("code")) is not int or result["code"] != 200:
+        raise RuntimeError("息知未确认接收成功；请检查XZKEY和息知配置，本次不自动重发")
 
 
 def main(argv=None):
     argparser = argparse.ArgumentParser(description=__doc__)
     argparser.add_argument("--dry-run", action="store_true", help="预览报价，不推送")
     args = argparser.parse_args(argv)
-    key = os.environ.get("SERVERCHAN_SENDKEY", "").strip()
-    if not args.dry_run and not re.fullmatch(r"(?:SCT|sctp)[A-Za-z0-9]+", key):
-        print("ERROR: 请在当前仓库的Actions Secrets配置SERVERCHAN_SENDKEY（完整SCT或sctp密钥）。", file=sys.stderr)
-        return 1
+    key = ""
+    if not args.dry_run:
+        key = os.environ.get("XZKEY", "").strip()
+        try:
+            xizhi_url(key)
+        except ValueError as error:
+            print("ERROR: " + str(error), file=sys.stderr)
+            return 1
     fetch_failed = False
     try:
         rates, published = fetch_usd()
@@ -181,7 +210,7 @@ def main(argv=None):
         # send_once emits a sanitized message without the key or response body.
         print("ERROR: " + str(exc), file=sys.stderr)
         return 1
-    print("报价获取失败，已发送失败提醒。" if fetch_failed else "Server酱已接受本次日报推送。")
+    print("报价获取失败，息知已接受失败提醒请求。" if fetch_failed else "息知已接受本次日报推送请求，请以微信实际收到通知为准。")
     return int(fetch_failed)
 
 
