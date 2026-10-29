@@ -24,7 +24,9 @@ class TrendTests(unittest.TestCase):
         data = [point(TODAY - timedelta(days=6), "7.00"), point(TODAY, "6.90")]
         text = build_summary(data, TODAY, digits=4, unit="元/美元")
         self.assertIn("10/23–10/29", text)
-        self.assertIn("█ · · · · · ▁", text)
+        self.assertIn("| 2026-10-23 | 7.0000 |", text)
+        self.assertIn("| 2026-10-29 | 6.9000 |", text)
+        self.assertEqual(text.count("| 暂无记录 |"), 5)
         self.assertIn("有效记录2/7天", text)
         self.assertIn("最低6.9000，最高7.0000", text)
         self.assertIn("-0.1000元/美元（-1.43%）", text)
@@ -41,13 +43,16 @@ class TrendTests(unittest.TestCase):
     def test_flat_history_has_no_division_by_zero(self):
         text = build_summary([point(TODAY - timedelta(days=i)) for i in range(7)],
                              TODAY, digits=4, unit="元/美元")
-        self.assertIn("▄ ▄ ▄ ▄ ▄ ▄ ▄", text)
+        self.assertEqual(len([line for line in text.splitlines() if line.startswith("| 2026-")]), 7)
         self.assertIn("+0.00%", text)
 
     def test_midnight_crosses_month_and_year(self):
         text = build_summary([], date(2027, 1, 2), digits=2, unit="元/克")
         self.assertIn("12/27–01/02", text)
         self.assertIn("暂没有", text)
+        self.assertIn("| 2026-12-27 | 暂无记录 |", text)
+        self.assertIn("| 2027-01-02 | 暂无记录 |", text)
+        self.assertEqual(text.count("| 暂无记录 |"), 7)
 
     def test_update_replaces_day_only_with_later_quote(self):
         data = [point(TODAY, "7.02", hour=10)]
@@ -122,7 +127,17 @@ class TrendTests(unittest.TestCase):
             data = load_history(path, "test")
             self.assertEqual(len(data), 1)
             self.assertEqual(data[0]["date"], "2026-10-28")
-            self.assertIn("· · · · · ▄ ·", text)
+            self.assertIn("| 2026-10-28 | 800.00 |", text)
+            self.assertIn("| 2026-10-29 | 暂无记录 |", text)
+
+    def test_gold_and_rate_table_units_and_precision(self):
+        for digits, unit, shown in [(2, "元/克", "865.13"), (4, "元/美元", "865.1267")]:
+            text = build_summary([point(TODAY, "865.1267")], TODAY, digits=digits, unit=unit)
+            self.assertIn(f"| 日期 | 价格（{unit}） |", text)
+            self.assertIn(f"| 2026-10-29 | {shown} |", text)
+            self.assertNotIn("▁", text)
+            self.assertNotIn("▄", text)
+            self.assertNotIn("█", text)
 
 
 if __name__ == "__main__":

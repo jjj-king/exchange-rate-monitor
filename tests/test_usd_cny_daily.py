@@ -1,3 +1,4 @@
+import tempfile
 from pathlib import Path
 from decimal import Decimal
 from datetime import datetime
@@ -13,6 +14,11 @@ TABLE = '''<table><tr><th>货币名称</th><th>现汇买入价</th><th>现钞买
 <tr><td>美元</td><td>700.00</td><td>699.00</td><td>702.00</td><td>703.00</td><td>701</td><td>2026.10.21</td><td>09:00:00</td></tr></table>'''
 
 class Tests(unittest.TestCase):
+    def setUp(self):
+        self.history_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.history_dir.cleanup)
+        self.args = ["--history-file", str(Path(self.history_dir.name) / "history.json")]
+
     def test_parse_and_units(self):
         rates, stamp = daily.parse_usd(TABLE)
         self.assertEqual(rates['现汇买入价'], Decimal('700.00'))
@@ -37,24 +43,24 @@ class Tests(unittest.TestCase):
         rates, stamp = daily.parse_usd(TABLE)
         stream = io.StringIO()
         with patch.dict(os.environ, {'XZKEY':'XZTESTEXAMPLE1234'}), patch.object(daily, 'fetch_usd', return_value=(rates, stamp)), patch.object(daily,'send_once') as send, contextlib.redirect_stdout(stream):
-            self.assertEqual(daily.main([]),0)
+            self.assertEqual(daily.main(self.args),0)
             self.assertEqual(send.call_count,1)
         self.assertNotIn('XZTESTEXAMPLE1234',stream.getvalue())
 
     def test_fetch_failure_one_notice(self):
         with patch.dict(os.environ, {'XZKEY':'XZTESTEXAMPLE1234'}), patch.object(daily, 'fetch_usd', side_effect=RuntimeError), patch.object(daily,'send_once') as send, contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(daily.main([]),1)
+            self.assertEqual(daily.main(self.args),1)
             self.assertEqual(send.call_count,1)
             self.assertIn('获取失败',send.call_args.args[1])
 
     def test_dryrun_never_sends(self):
         with patch.dict(os.environ, {'XZKEY':''}), patch.object(daily,'fetch_usd',return_value=daily.parse_usd(TABLE)), patch.object(daily,'send_once') as send, contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(daily.main(['--dry-run']),0)
+            self.assertEqual(daily.main(self.args + ['--dry-run']),0)
             send.assert_not_called()
 
     def test_missing_key(self):
         with patch.dict(os.environ, {'XZKEY':''}), patch.object(daily,'fetch_usd') as fetch, contextlib.redirect_stderr(io.StringIO()):
-            self.assertEqual(daily.main([]),1)
+            self.assertEqual(daily.main(self.args),1)
             fetch.assert_not_called()
 
 

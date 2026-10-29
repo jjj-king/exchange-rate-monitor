@@ -6,7 +6,7 @@ The caller supplies an explicit series ID to prevent mixing different prices.
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation
 import json
 from pathlib import Path
 import sys
@@ -67,22 +67,17 @@ def build_summary(points: list[dict], today: date, *, digits: int, unit: str) ->
     by_date = {p["date"]: Decimal(p["value"]) for p in points}
     values = [by_date.get(day.isoformat()) for day in days]
     valid = [(day, value) for day, value in zip(days, values) if value is not None]
-    lines = [f"### 近7天趋势（{days[0]:%m/%d}–{days[-1]:%m/%d}）", ""]
+    lines = [f"### 近7天趋势（{days[0]:%m/%d}–{days[-1]:%m/%d}）", "",
+             f"| 日期 | 价格（{unit}） |", "| --- | ---: |"]
+    for day, value in zip(days, values):
+        shown = "暂无记录" if value is None else f"{value:.{digits}f}"
+        lines.append(f"| {day:%Y-%m-%d} | {shown} |")
+    lines += ["", "未记录的日期显示“暂无记录”，不沿用旧报价补齐。", ""]
     if not valid:
         return "\n".join(lines + ["暂没有有效历史记录；从首次有效报价开始积累。"])
     low = min(value for _, value in valid)
     high = max(value for _, value in valid)
-    ticks = "▁▂▃▄▅▆▇█"
-    def tick(value):
-        if value is None:
-            return "·"
-        if high == low:
-            return "▄"
-        index = int(((value - low) / (high - low) * 7).quantize(Decimal(1), rounding=ROUND_HALF_UP))
-        return ticks[index]
-    lines += [" ".join(tick(value) for value in values), "",
-              "从左到右每天一格；·表示无记录或休市，柱高为本窗口内相对高低。", "",
-              f"有效记录{len(valid)}/7天；最低{low:.{digits}f}，最高{high:.{digits}f}{unit}。"]
+    lines += [f"有效记录{len(valid)}/7天；最低{low:.{digits}f}，最高{high:.{digits}f}{unit}。"]
     if len(valid) >= 2:
         first_day, first = valid[0]
         last_day, last = valid[-1]
