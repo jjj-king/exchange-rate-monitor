@@ -1,0 +1,28 @@
+name: Daily Rate Tests
+
+on:
+  push:
+    paths:
+      - 'usd_cny_daily.py'
+      - 'daily_trend.py'
+      - 'tests/**'
+      - '.github/workflows/usd_cny_daily.yml'
+      - '.github/workflows/tests.yml'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s tests -v

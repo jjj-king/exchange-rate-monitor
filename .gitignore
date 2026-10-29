@@ -1,1 +1,4 @@
 .env
+
+# Daily observation history is persisted by Actions cache, never with credentials.
+.state/

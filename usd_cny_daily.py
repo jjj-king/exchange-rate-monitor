@@ -15,11 +15,14 @@ from decimal import Decimal, InvalidOperation
 from html.parser import HTMLParser
 import json
 import os
+from pathlib import Path
 import re
 import sys
 import time
 from urllib.error import HTTPError
 from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
+
+from daily_trend import prepare_summary
 
 BOC_URL = "https://www.boc.cn/sourcedb/whpj/"
 BEIJING = timezone(timedelta(hours=8))
@@ -118,14 +121,22 @@ def fetch_usd():
 
 def build_message(rates, published, now=None):
     now = now or datetime.now(BEIJING)
-    title = "美元兑人民币日报 " + now.strftime("%m-%d")
+    sell = rates["现汇卖出价"] / Decimal(100)
+    title = f"美元购汇日报｜现汇卖出价 {sell:.4f}元"
     lines = [
-        "## 美元兑人民币 · 中国银行牌价",
+        "## 买入美元现汇 · 中国银行牌价",
+        "",
+        f"**购汇参考价：1美元 = {sell:.4f}元人民币（现汇卖出价）**",
+        "",
+        f"买入1000美元约需{sell * 1000:.2f}元人民币。",
+        "",
+        "你用人民币买入账户美元，应看银行的现汇卖出价；数值越低，同额美元所需人民币越少。",
         "",
         "| 项目 | 1美元折合人民币 |",
         "| --- | --- |",
     ]
-    for label in RATE_LABELS:
+    # Prioritize the user's purchase price; retain the reverse direction only.
+    for label in ("现汇卖出价", "现汇买入价"):
         lines.append(f"| {label} | {rates[label] / Decimal(100):.4f} 元 |")
     lines += [
         "",
@@ -182,6 +193,9 @@ def send_once(key, title, text):
 def main(argv=None):
     argparser = argparse.ArgumentParser(description=__doc__)
     argparser.add_argument("--dry-run", action="store_true", help="预览报价，不推送")
+    argparser.add_argument("--history-file", type=Path,
+                           default=Path(__file__).resolve().parent / ".state/usd-cny-history.json",
+                           help="历史购汇价文件；预览只读，不写入")
     args = argparser.parse_args(argv)
     key = ""
     if not args.dry_run:
@@ -192,15 +206,25 @@ def main(argv=None):
             print("ERROR: " + str(error), file=sys.stderr)
             return 1
     fetch_failed = False
+    now = datetime.now(BEIJING)
+    point = None
     try:
         rates, published = fetch_usd()
-        title, text = build_message(rates, published)
+        title, text = build_message(rates, published, now)
+        if published.astimezone(BEIJING) <= now:
+            point = {"date": published.astimezone(BEIJING).date().isoformat(),
+                     "value": str(rates["现汇卖出价"] / Decimal(100)),
+                     "timestamp": published.astimezone(BEIJING).isoformat()}
     except Exception:
         fetch_failed = True
         title = "美元兑人民币日报：获取失败"
         text = ("今天未能获取或解析中国银行美元牌价，未使用缓存或虚构数据。\n\n"
                 "请打开GitHub仓库的Actions检查运行结果，或稍后手动重试。\n\n"
                 f"数据源：{BOC_URL}")
+    text += "\n\n" + prepare_summary(args.history_file, "boc-usd-cny-fx-sell-per-usd", now.date(),
+                                      digits=4, unit="元/美元", point=point,
+                                      persist=not args.dry_run)
+    text += "\n\n趋势仅统计现汇卖出价；价格下降表示购买同额美元更省人民币。"
     if args.dry_run:
         print(title + "\n\n" + text)
         return int(fetch_failed)
