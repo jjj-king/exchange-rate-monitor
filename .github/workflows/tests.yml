@@ -6,6 +6,7 @@ on:
       - 'usd_cny_daily.py'
       - 'daily_trend.py'
       - 'tests/**'
+      - 'delivery_schedule.py'
       - '.github/workflows/usd_cny_daily.yml'
       - '.github/workflows/tests.yml'
   pull_request:
