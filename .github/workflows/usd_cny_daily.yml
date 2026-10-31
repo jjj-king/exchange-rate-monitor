@@ -2,7 +2,7 @@ name: USD-CNY Daily XiZhi
 
 on:
   schedule:
-    - cron: '17 * * * *' # 每小时检查一次；实际发送受北京时间窗口和日期去重控制。
+    - cron: '17 * * * *' # 每小时尝试一次；宽容错窗口吸收GitHub延迟，每天仍最多发送一次。
   workflow_dispatch:
     inputs:
       force:
@@ -34,7 +34,7 @@ jobs:
           persist-credentials: false
       - name: Check actual Beijing delivery window
         id: window
-        run: python delivery_schedule.py --start 09:00 --end 12:00 --check-window
+        run: python delivery_schedule.py --start 08:00 --end 18:00 --check-window
       - name: Set up Python
         if: ${{ steps.window.outputs.allowed == 'true' }}
         uses: actions/setup-python@v7
@@ -59,7 +59,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           XZKEY: ${{ secrets.XZKEY }}
           FORCE_SEND: ${{ github.event_name == 'workflow_dispatch' && inputs.force }}
-        run: python delivery_schedule.py --start 09:00 --end 12:00 -- python usd_cny_daily.py --history-file .state/usd-cny-history.json
+        run: python delivery_schedule.py --start 08:00 --end 18:00 -- python usd_cny_daily.py --history-file .state/usd-cny-history.json
       - name: Save daily price history
         if: ${{ always() && steps.history.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run) && hashFiles('.state/usd-cny-history.json') != '' }}
         uses: actions/cache/save@v4
